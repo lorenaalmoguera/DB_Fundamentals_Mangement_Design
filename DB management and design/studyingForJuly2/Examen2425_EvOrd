@@ -1,0 +1,187 @@
+CONNECT SYSTEM/bdadmin;
+
+CREATE USER ord2425 IDENTIFIED BY examen;
+
+GRANT CONNECT, RESOURCE TO ord2425;
+
+CREATE TABLE PRUEBA (
+    codigo VARCHAR2(50),
+    nombre VARCHAR2(50),
+    CONSTRAINT pru_cod_pk PRIMARY KEY (codigo)
+);
+
+CREATE TABLE CENTRO(
+    codigo VARCHAR2(50),
+    nombre VARCHAR2(50),
+    localidad VARCHAR2(50),
+    CONSTRAINT cen_cod_pk PRIMARY KEY(codigo)
+);
+
+CREATE TABLE DEPORTISTA(
+    dni VARCHAR2(9),
+    nombre VARCHAR2(50),
+    apellido1 VARCHAR2(50),
+    loclaidad VARCHAR2(50),
+    telefono VARCHAR2(9),
+    iddep VARCHAR2(50) CONSTRAINT dep_idd_nn NOT NULL,
+    CONSTRAINT dep_dni_pk PRIMARY KEY(dni),
+    CONSTRAINT dep_idd_uq UNIQUE (iddep)
+);
+
+CREATE TABLE CELEBRAR (
+    codigo VARCHAR2(50),
+    centro VARCHAR2(50),
+    dia DATE,
+    precio NUMBER (5,2),
+    CONSTRAINT cel_cod_cen_dia_pk PRIMARY KEY (codigo, centro, dia),
+    CONSTRAINT cel_cod_pru_fk FOREIGN KEY (codigo) REFERENCES PRUEBA,
+    CONSTRAINT cel_cen_cen_fk FOREIGN KEY (centro) REFERENCES CENTRO,
+    CONSTRAINT cel_pre_ch CHECK (precio >= 0 AND precio <= 120)
+);
+
+CREATE TABLE PARTICIPAR(
+    dni VARCHAR2(9),
+    codigo VARCHAR2(50),
+    centro VARCHAR2(50),
+    fecha DATE,
+    posicion NUMBER (3),
+    CONSTRAINT par_dni_cod_cen_fec_pk PRIMARY KEY(dni, codigo, centro, fecha),
+    CONSTRAINT par_dni_dep_fk FOREIGN KEY (dni) REFERENCES DEPORTISTA,
+    CONSTRAINT par_cod_cen_fec_fk FOREIGN KEY (codigo, centro, fecha) REFERENCES CELEBRAR,
+    CONSTRAINT par_pos_ch CHECK (posicion > 0)
+);
+
+--- INSERTS
+
+-- Insertar PRUEBAS
+INSERT INTO PRUEBA VALUES ('P001', 'Carrera 100m');
+INSERT INTO PRUEBA VALUES ('P002', 'Salto largo');
+
+-- Insertar CENTROS
+INSERT INTO CENTRO VALUES ('C001', 'Centro Deportivo Norte', 'Madrid');
+INSERT INTO CENTRO VALUES ('C002', 'Centro Deportivo Sur', 'Sevilla');
+
+-- Insertar DEPORTISTAS
+INSERT INTO DEPORTISTA VALUES ('12345678A', 'Luis', 'Martinez', 'Madrid', '600000001', 'D001');
+INSERT INTO DEPORTISTA VALUES ('87654321B', 'Ana', 'Gomez', 'Sevilla', '600000002', 'D002');
+
+-- Insertar CELEBRAR (eventos)
+INSERT INTO CELEBRAR VALUES ('P001', 'C001', TO_DATE('2025-06-20', 'YYYY-MM-DD'), 20.00);
+INSERT INTO CELEBRAR VALUES ('P001', 'C001', TO_DATE('2025-06-21', 'YYYY-MM-DD'), 15.00);
+INSERT INTO CELEBRAR VALUES ('P002', 'C002', TO_DATE('2025-06-22', 'YYYY-MM-DD'), 10.00);
+
+-- Insertar PARTICIPACIONES
+INSERT INTO PARTICIPAR VALUES ('12345678A', 'P001', 'C001', TO_DATE('2025-06-20', 'YYYY-MM-DD'), 1);
+INSERT INTO PARTICIPAR VALUES ('87654321B', 'P001', 'C001', TO_DATE('2025-06-20', 'YYYY-MM-DD'), 2);
+
+
+
+
+SET SERVEROUTPUT ON;
+
+CREATE OR REPLACE PROCEDURE INSCRITOS_PRUEBACENTRO (input_prueba VARCHAR2, input_centro VARCHAR2, input_dia DATE)
+AS
+    var_prueba VARCHAR2(50);
+    var_centro VARCHAR2(50);
+    var_dia DATE;
+    var_importe_total NUMBER := 0;
+
+    var_prueba_ch NUMBER;
+    var_centro_ch NUMBER;
+    var_prueba_centro_ch NUMBER;
+    var_prueba_dia_centro_ch NUMBER;
+BEGIN
+
+    SELECT COUNT(*)
+    INTO var_prueba_ch
+    FROM PRUEBA
+    WHERE codigo = input_prueba;
+
+    SELECT COUNT(*)
+    INTO var_centro_ch
+    FROM CENTRO
+    WHERE codigo = input_centro;
+
+    SELECT COUNT(*)
+    INTO var_prueba_dia_centro_ch
+    FROM CELEBRAR
+    WHERE codigo = input_prueba AND centro = input_centro AND dia = input_dia;
+
+    SELECT COUNT(*)
+    INTO var_prueba_centro_ch
+    FROM CELEBRAR
+    WHERE codigo = input_prueba AND centro = input_centro;
+
+    IF var_prueba_dia_centro_ch = 0 AND var_prueba_centro_ch > 0 THEN
+        RAISE_APPLICATION_ERROR(-20004, 'No existe la prieba en el centro en el dia indicado');
+    ELSIF var_prueba_centro_ch = 0 THEN
+        RAISE_APPLICATION_ERROR(-20005, 'No existe la prueba en el centro');
+    ELSIF var_centro_ch = 0 AND var_prueba_ch = 0 THEN
+        RAISE_APPLICATION_ERROR(-20003, 'No exista la pruieba ni el centro.');
+    ELSIF var_centro_ch = 0 THEN
+        RAISE_APPLICATION_ERROR(-20002, 'No existe el centro');
+    ELSIF var_prueba_ch = 0 THEN
+        RAISE_APPLICATION_ERROR(-20001, 'No existe la prueba.');
+    END IF;
+
+    SELECT p.nombre, c.nombre, cel.dia
+    INTO var_prueba, var_centro, var_dia
+    FROM CELEBRAR cel
+    JOIN PRUEBA p ON p.codigo = cel.codigo
+    JOIN CENTRO c ON c.codigo = cel.centro
+    WHERE cel.codigo = input_prueba AND cel.centro = input_centro AND cel.dia = input_dia;
+
+    DBMS_OUTPUT.PUT_LINE('PRUEBA: ' || var_prueba);
+    DBMS_OUTPUT.PUT_LINE('CENTRO: ' || var_centro);
+    DBMS_OUTPUT.PUT_LINE('DIA: ' || var_dia);
+    DBMS_OUTPUT.PUT_LINE('PARTICIPANTES');
+    DBMS_OUTPUT.PUT_LINE('------------------------');
+
+    FOR participantes IN(
+        SELECT dep.apellido1, dep.nombre, par.posicion, cel.precio
+        FROM PARTICIPAR par
+        JOIN DEPORTISTA dep ON dep.dni = par.dni
+        JOIN CELEBRAR cel ON cel.codigo = par.codigo AND cel.centro = par.centro AND cel.dia = par.fecha
+        WHERE par.codigo = input_prueba AND par.centro = input_centro AND par.fecha = input_dia
+    )LOOP
+        DBMS_OUTPUT.PUT_LINE(participantes.apellido1 || ' ' || participantes.nombre || ' ' || participantes.posicion);
+        var_importe_total := var_importe_total + participantes.precio;
+
+    END LOOP;
+
+    DBMS_OUTPUT.PUT_LINE('Total importe inscripciones: ' || var_importe_total);
+
+END;
+/
+
+CREATE OR REPLACE TRIGGER DISPARADOR_LOCALIDAD
+BEFORE INSERT ON PARTICIPAR
+FOR EACH ROW
+DECLARE
+    localidaddep VARCHAR2(50);
+    localidadprue VARCHAR2(50);
+BEGIN
+    SELECT loclaidad
+    INTO localidaddep
+    FROM DEPORTISTA
+    WHERE dni = :NEW.dni;
+
+    SELECT localidad
+    INTO localidadprue
+    FROM CENTRO
+    WHERE codigo = :NEW.centro;
+
+    IF localidaddep = localidadprue THEN
+        RAISE_APPLICATION_ERROR(-20006, 'No se permite a ' || :NEW.dni || ' participar en una prueba de un entro situato en su localidad de origen.');
+    END IF;
+END;
+/
+
+-- INSERCIÓN VÁLIDA (deportista y centro NO están en la misma localidad)
+-- Luis (Madrid) participando en centro de Sevilla
+INSERT INTO PARTICIPAR VALUES ('12345678A', 'P002', 'C002', TO_DATE('2025-06-22', 'YYYY-MM-DD'), 1);
+
+-- INSERCIÓN INVÁLIDA (deportista y centro están en la misma localidad)
+-- Luis (Madrid) participando en centro de Madrid (mismo lugar)
+-- Esto debe activar el trigger y lanzar el error -20006
+INSERT INTO PARTICIPAR VALUES ('12345678A', 'P001', 'C001', TO_DATE('2025-06-21', 'YYYY-MM-DD'), 2);

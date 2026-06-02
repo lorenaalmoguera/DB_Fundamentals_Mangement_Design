@@ -1,0 +1,3 @@
+SELECT "title"
+FROM "EPISODES"
+WHERE "topic" IS NULL;
